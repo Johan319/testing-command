@@ -432,26 +432,41 @@ local function bringPlayer(targetPlayer, executor)
         return
     end
 
-    local returnPosition = rootPart.Position
-    local returnLook = rootPart.CFrame.LookVector
+    -- save exact original position + rotation
+    local originalCFrame = rootPart.CFrame
 
+    -- go to target
     rootPart.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
 
     addLog(executor.Name .. " [" .. getPlayerRank(executor) .. "] used bring on " ..
         targetPlayer.Name .. " [" .. getPlayerRank(targetPlayer) .. "]")
 
-    task.wait(0.25)
+    task.wait(0.2)
 
     local currentCharacter = player.Character
-    if currentCharacter then
-        local currentRoot = currentCharacter:FindFirstChild("HumanoidRootPart")
-        if currentRoot then
-            currentRoot.CFrame = CFrame.lookAt(
-                returnPosition,
-                returnPosition + returnLook
-            )
-        end
+    if not currentCharacter then
+        return
     end
+
+    local currentRoot = currentCharacter:FindFirstChild("HumanoidRootPart")
+    if not currentRoot then
+        return
+    end
+
+    -- stop physics from pushing you
+    local oldVelocity = currentRoot.AssemblyLinearVelocity
+    local oldRotVelocity = currentRoot.AssemblyAngularVelocity
+
+    currentRoot.Anchored = true
+    currentRoot.AssemblyLinearVelocity = Vector3.zero
+    currentRoot.AssemblyAngularVelocity = Vector3.zero
+    currentRoot.CFrame = originalCFrame
+
+    task.wait()
+
+    currentRoot.Anchored = false
+    currentRoot.AssemblyLinearVelocity = oldVelocity
+    currentRoot.AssemblyAngularVelocity = oldRotVelocity
 end
 
 -- Dex/Explorer function (Admin rank)
