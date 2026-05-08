@@ -432,20 +432,26 @@ local function bringPlayer(targetPlayer, executor)
         return
     end
 
-    local originalCFrame = rootPart.CFrame
+    local returnPosition = rootPart.Position
+    local returnLook = rootPart.CFrame.LookVector
 
-    -- go to target
     rootPart.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
 
     addLog(executor.Name .. " [" .. getPlayerRank(executor) .. "] used bring on " ..
         targetPlayer.Name .. " [" .. getPlayerRank(targetPlayer) .. "]")
 
-    -- small delay then return
-    task.delay(0.35, function()
-        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            player.Character.HumanoidRootPart.CFrame = originalCFrame
+    task.wait(0.25)
+
+    local currentCharacter = player.Character
+    if currentCharacter then
+        local currentRoot = currentCharacter:FindFirstChild("HumanoidRootPart")
+        if currentRoot then
+            currentRoot.CFrame = CFrame.lookAt(
+                returnPosition,
+                returnPosition + returnLook
+            )
         end
-    end)
+    end
 end
 
 -- Dex/Explorer function (Admin rank)
