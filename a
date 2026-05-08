@@ -1,0 +1,1044 @@
+-- Admin Commands for Brookhaven with Titlebar Rank Display
+-- Default prefix: ;
+-- Commands: tp <player>, goto <player>, to <player>, view <player>, spectate <player>, prefix <new prefix>, cmds, commands, rejoin, reset, antivoid, infjump, antisit, antifling, serverinfo, info, dex, explorer
+
+local prefix = ";"
+local player = game.Players.LocalPlayer
+
+-- ============================================
+-- MANUAL GROUP RANKS (Edit these!)
+-- Add players and their ranks from your group
+-- Rank hierarchy: Owner > Co-Owner > Head Admin > Admin > Moderator > VIP > Member
+-- ============================================
+local groupRanks = {
+    ["Johan"] = "Owner",
+    ["sigmaboy2341814"] = "Co-Owner",
+    ["PlayerName2"] = "Head Admin",
+    ["PlayerName3"] = "Admin",
+    ["PlayerName4"] = "Moderator",
+    ["PlayerName5"] = "VIP",
+}
+
+-- Rank permission levels (higher number = more permissions)
+local rankLevels = {
+    ["Owner"] = 100,
+    ["Co-Owner"] = 90,
+    ["Head Admin"] = 80,
+    ["Admin"] = 70,
+    ["Moderator"] = 60,
+    ["VIP"] = 50,
+    ["Member"] = 10,
+}
+
+-- Spectate variables
+local isSpectating = false
+local currentSpectateTarget = nil
+local originalCameraSubject = nil
+local camera = workspace.CurrentCamera
+
+-- AntiSit variables
+local antiSitEnabled = false
+local antiSitConnection = nil
+
+-- AntiFling variables
+local antiFlingActive = false
+local antiFlingHeartbeat = nil
+
+-- Function to get a player's rank from the table
+local function getPlayerRank(plr)
+    local username = plr.Name
+    local displayName = plr.DisplayName
+    
+    if groupRanks[username] then
+        return groupRanks[username]
+    end
+    for name, rank in pairs(groupRanks) do
+        if displayName:lower() == name:lower() then
+            return rank
+        end
+    end
+    return "Member"
+end
+
+-- Function to check if a player has permission (requiredLevel or higher)
+local function hasPermission(plr, requiredRank)
+    local playerRank = getPlayerRank(plr)
+    local playerLevel = rankLevels[playerRank] or 0
+    local requiredLevel = rankLevels[requiredRank] or 0
+    return playerLevel >= requiredLevel
+end
+
+-- Create Titlebar GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AdminTitlebar"
+screenGui.Parent = player.PlayerGui
+screenGui.ResetOnSpawn = false
+
+-- Main titlebar frame (Height: 40px, Full width)
+local titlebar = Instance.new("Frame")
+titlebar.Size = UDim2.new(1, 0, 0, 40)
+titlebar.Position = UDim2.new(0, 0, 0, 0)
+titlebar.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+titlebar.BackgroundTransparency = 0.15
+titlebar.BorderSizePixel = 0
+titlebar.Parent = screenGui
+
+-- Top border line
+local topBorder = Instance.new("Frame")
+topBorder.Size = UDim2.new(1, 0, 0, 2)
+topBorder.Position = UDim2.new(0, 0, 0, 0)
+topBorder.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+topBorder.BorderSizePixel = 0
+topBorder.Parent = titlebar
+
+local function updateBorderColor()
+    local yourRank = getPlayerRank(player)
+    if yourRank == "Owner" then
+        topBorder.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+    elseif yourRank == "Co-Owner" then
+        topBorder.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    elseif yourRank == "Head Admin" then
+        topBorder.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    elseif yourRank == "Admin" then
+        topBorder.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+    elseif yourRank == "Moderator" then
+        topBorder.BackgroundColor3 = Color3.fromRGB(255, 170, 0)
+    else
+        topBorder.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    end
+end
+
+-- Left section: Your Rank and Name
+local leftSection = Instance.new("Frame")
+leftSection.Size = UDim2.new(0, 200, 1, 0)
+leftSection.Position = UDim2.new(0, 10, 0, 0)
+leftSection.BackgroundTransparency = 1
+leftSection.Parent = titlebar
+
+local rankLabel = Instance.new("TextLabel")
+rankLabel.Size = UDim2.new(0, 80, 1, 0)
+rankLabel.Position = UDim2.new(0, 0, 0, 0)
+rankLabel.BackgroundTransparency = 1
+rankLabel.Text = getPlayerRank(player)
+rankLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+rankLabel.TextSize = 18
+rankLabel.Font = Enum.Font.GothamBold
+rankLabel.TextXAlignment = Enum.TextXAlignment.Left
+rankLabel.Parent = leftSection
+
+local nameLabel = Instance.new("TextLabel")
+nameLabel.Size = UDim2.new(0, 120, 1, 0)
+nameLabel.Position = UDim2.new(0, 85, 0, 0)
+nameLabel.BackgroundTransparency = 1
+nameLabel.Text = player.Name
+nameLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+nameLabel.TextSize = 16
+nameLabel.Font = Enum.Font.Gotham
+nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+nameLabel.Parent = leftSection
+
+local separator = Instance.new("Frame")
+separator.Size = UDim2.new(0, 1, 0, 25)
+separator.Position = UDim2.new(0, 205, 0, 7)
+separator.BackgroundColor3 = Color3.fromRGB(80, 80, 100)
+separator.BorderSizePixel = 0
+separator.Parent = titlebar
+
+-- Middle section: Only prefix info
+local middleSection = Instance.new("Frame")
+middleSection.Size = UDim2.new(0, 150, 1, 0)
+middleSection.Position = UDim2.new(0, 220, 0, 0)
+middleSection.BackgroundTransparency = 1
+middleSection.Parent = titlebar
+
+local prefixLabel = Instance.new("TextLabel")
+prefixLabel.Size = UDim2.new(1, 0, 1, 0)
+prefixLabel.Position = UDim2.new(0, 0, 0, 0)
+prefixLabel.BackgroundTransparency = 1
+prefixLabel.Text = "Prefix: " .. prefix .. " | Type " .. prefix .. "cmds"
+prefixLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+prefixLabel.TextSize = 14
+prefixLabel.Font = Enum.Font.Gotham
+prefixLabel.TextXAlignment = Enum.TextXAlignment.Left
+prefixLabel.Parent = middleSection
+
+-- Right section: Command counter and toggle
+local rightSection = Instance.new("Frame")
+rightSection.Size = UDim2.new(0, 120, 1, 0)
+rightSection.Position = UDim2.new(1, -130, 0, 0)
+rightSection.BackgroundTransparency = 1
+rightSection.Parent = titlebar
+
+local counterLabel = Instance.new("TextLabel")
+counterLabel.Size = UDim2.new(0, 50, 1, 0)
+counterLabel.Position = UDim2.new(0, 0, 0, 0)
+counterLabel.BackgroundTransparency = 1
+counterLabel.Text = "0"
+counterLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+counterLabel.TextSize = 18
+counterLabel.Font = Enum.Font.GothamBold
+counterLabel.TextXAlignment = Enum.TextXAlignment.Right
+counterLabel.Parent = rightSection
+
+local commandsText = Instance.new("TextLabel")
+commandsText.Size = UDim2.new(0, 60, 1, 0)
+commandsText.Position = UDim2.new(0, 55, 0, 0)
+commandsText.BackgroundTransparency = 1
+commandsText.Text = "logs"
+commandsText.TextColor3 = Color3.fromRGB(120, 120, 140)
+commandsText.TextSize = 12
+commandsText.Font = Enum.Font.Gotham
+commandsText.TextXAlignment = Enum.TextXAlignment.Left
+commandsText.Parent = rightSection
+
+-- Spectate indicator
+local spectateIndicator = Instance.new("Frame")
+spectateIndicator.Size = UDim2.new(0, 200, 0, 30)
+spectateIndicator.Position = UDim2.new(0.5, -100, 1, -40)
+spectateIndicator.BackgroundColor3 = Color3.fromRGB(255, 100, 50)
+spectateIndicator.BackgroundTransparency = 0.25
+spectateIndicator.BorderSizePixel = 1
+spectateIndicator.BorderColor3 = Color3.fromRGB(255, 100, 50)
+spectateIndicator.Visible = false
+spectateIndicator.Parent = screenGui
+
+local spectateCorner = Instance.new("UICorner")
+spectateCorner.CornerRadius = UDim.new(0, 8)
+spectateCorner.Parent = spectateIndicator
+
+local spectateText = Instance.new("TextLabel")
+spectateText.Size = UDim2.new(1, 0, 1, 0)
+spectateText.BackgroundTransparency = 1
+spectateText.Text = "SPECTATING: None"
+spectateText.TextColor3 = Color3.fromRGB(255, 255, 255)
+spectateText.TextSize = 14
+spectateText.Font = Enum.Font.GothamBold
+spectateText.Parent = spectateIndicator
+
+local stopSpectateButton = Instance.new("TextButton")
+stopSpectateButton.Size = UDim2.new(0, 60, 1, 0)
+stopSpectateButton.Position = UDim2.new(1, -65, 0, 0)
+stopSpectateButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+stopSpectateButton.Text = "STOP"
+stopSpectateButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+stopSpectateButton.TextSize = 12
+stopSpectateButton.Font = Enum.Font.GothamBold
+stopSpectateButton.Parent = spectateIndicator
+
+local stopCorner = Instance.new("UICorner")
+stopCorner.CornerRadius = UDim.new(0, 6)
+stopCorner.Parent = stopSpectateButton
+
+-- AntiSit status indicator
+local antiSitIndicator = Instance.new("Frame")
+antiSitIndicator.Size = UDim2.new(0, 150, 0, 25)
+antiSitIndicator.Position = UDim2.new(0.5, -75, 1, -70)
+antiSitIndicator.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+antiSitIndicator.BackgroundTransparency = 0.2
+antiSitIndicator.BorderSizePixel = 1
+antiSitIndicator.BorderColor3 = Color3.fromRGB(0, 255, 0)
+antiSitIndicator.Visible = false
+antiSitIndicator.Parent = screenGui
+
+local antiSitCorner = Instance.new("UICorner")
+antiSitCorner.CornerRadius = UDim.new(0, 8)
+antiSitCorner.Parent = antiSitIndicator
+
+local antiSitText = Instance.new("TextLabel")
+antiSitText.Size = UDim2.new(1, 0, 1, 0)
+antiSitText.BackgroundTransparency = 1
+antiSitText.Text = "ANTI-SIT: ENABLED"
+antiSitText.TextColor3 = Color3.fromRGB(0, 255, 0)
+antiSitText.TextSize = 12
+antiSitText.Font = Enum.Font.GothamBold
+antiSitText.Parent = antiSitIndicator
+
+-- AntiFling status indicator
+local antiFlingIndicator = Instance.new("Frame")
+antiFlingIndicator.Size = UDim2.new(0, 150, 0, 25)
+antiFlingIndicator.Position = UDim2.new(0.5, -75, 1, -100)
+antiFlingIndicator.BackgroundColor3 = Color3.fromRGB(100, 50, 0)
+antiFlingIndicator.BackgroundTransparency = 0.2
+antiFlingIndicator.BorderSizePixel = 1
+antiFlingIndicator.BorderColor3 = Color3.fromRGB(255, 170, 0)
+antiFlingIndicator.Visible = false
+antiFlingIndicator.Parent = screenGui
+
+local antiFlingCorner = Instance.new("UICorner")
+antiFlingCorner.CornerRadius = UDim.new(0, 8)
+antiFlingCorner.Parent = antiFlingIndicator
+
+local antiFlingText = Instance.new("TextLabel")
+antiFlingText.Size = UDim2.new(1, 0, 1, 0)
+antiFlingText.BackgroundTransparency = 1
+antiFlingText.Text = "ANTI-FLING: ENABLED"
+antiFlingText.TextColor3 = Color3.fromRGB(255, 170, 0)
+antiFlingText.TextSize = 12
+antiFlingText.Font = Enum.Font.GothamBold
+antiFlingText.Parent = antiFlingIndicator
+
+-- Log panel
+local logPanel = Instance.new("Frame")
+logPanel.Size = UDim2.new(0, 350, 0, 250)
+logPanel.Position = UDim2.new(1, -360, 0, 40)
+logPanel.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+logPanel.BackgroundTransparency = 0.1
+logPanel.BorderSizePixel = 1
+logPanel.BorderColor3 = Color3.fromRGB(255, 215, 0)
+logPanel.Visible = false
+logPanel.Parent = screenGui
+
+local logCorner = Instance.new("UICorner")
+logCorner.CornerRadius = UDim.new(0, 8)
+logCorner.Parent = logPanel
+
+local logTitle = Instance.new("TextLabel")
+logTitle.Size = UDim2.new(1, 0, 0, 25)
+logTitle.Position = UDim2.new(0, 0, 0, 0)
+logTitle.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+logTitle.BackgroundTransparency = 0.2
+logTitle.Text = "COMMAND LOG"
+logTitle.TextColor3 = Color3.fromRGB(0, 0, 0)
+logTitle.TextSize = 16
+logTitle.Font = Enum.Font.GothamBold
+logTitle.Parent = logPanel
+
+local logList = Instance.new("ScrollingFrame")
+logList.Size = UDim2.new(1, 0, 1, -25)
+logList.Position = UDim2.new(0, 0, 0, 25)
+logList.BackgroundTransparency = 1
+logList.CanvasSize = UDim2.new(0, 0, 0, 0)
+logList.Parent = logPanel
+
+local logLayout = Instance.new("UIListLayout")
+logLayout.Padding = UDim.new(0, 2)
+logLayout.Parent = logList
+
+-- Command list panel
+local commandPanel = Instance.new("Frame")
+commandPanel.Size = UDim2.new(0, 420, 0, 320)
+commandPanel.Position = UDim2.new(0.5, -210, 0.5, -160)
+commandPanel.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+commandPanel.BackgroundTransparency = 0.05
+commandPanel.BorderSizePixel = 2
+commandPanel.BorderColor3 = Color3.fromRGB(255, 215, 0)
+commandPanel.Visible = false
+commandPanel.Parent = screenGui
+
+local commandPanelCorner = Instance.new("UICorner")
+commandPanelCorner.CornerRadius = UDim.new(0, 8)
+commandPanelCorner.Parent = commandPanel
+
+local commandPanelTitle = Instance.new("TextLabel")
+commandPanelTitle.Size = UDim2.new(1, 0, 0, 30)
+commandPanelTitle.Position = UDim2.new(0, 0, 0, 0)
+commandPanelTitle.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+commandPanelTitle.BackgroundTransparency = 0.3
+commandPanelTitle.Text = "AVAILABLE COMMANDS"
+commandPanelTitle.TextColor3 = Color3.fromRGB(0, 0, 0)
+commandPanelTitle.TextSize = 18
+commandPanelTitle.Font = Enum.Font.GothamBold
+commandPanelTitle.Parent = commandPanel
+
+local headerFrame = Instance.new("Frame")
+headerFrame.Size = UDim2.new(1, -20, 0, 22)
+headerFrame.Position = UDim2.new(0, 10, 0, 35)
+headerFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+headerFrame.BackgroundTransparency = 0.5
+headerFrame.BorderSizePixel = 0
+headerFrame.Parent = commandPanel
+
+local headerCorner = Instance.new("UICorner")
+headerCorner.CornerRadius = UDim.new(0, 5)
+headerCorner.Parent = headerFrame
+
+local headerCmd = Instance.new("TextLabel")
+headerCmd.Size = UDim2.new(0.35, -5, 1, 0)
+headerCmd.Position = UDim2.new(0, 5, 0, 0)
+headerCmd.BackgroundTransparency = 1
+headerCmd.Text = "COMMAND"
+headerCmd.TextColor3 = Color3.fromRGB(255, 215, 0)
+headerCmd.TextSize = 12
+headerCmd.Font = Enum.Font.GothamBold
+headerCmd.TextXAlignment = Enum.TextXAlignment.Left
+headerCmd.Parent = headerFrame
+
+local headerDesc = Instance.new("TextLabel")
+headerDesc.Size = UDim2.new(0.45, -5, 1, 0)
+headerDesc.Position = UDim2.new(0.35, 5, 0, 0)
+headerDesc.BackgroundTransparency = 1
+headerDesc.Text = "DESCRIPTION"
+headerDesc.TextColor3 = Color3.fromRGB(255, 215, 0)
+headerDesc.TextSize = 12
+headerDesc.Font = Enum.Font.GothamBold
+headerDesc.TextXAlignment = Enum.TextXAlignment.Left
+headerDesc.Parent = headerFrame
+
+local headerRank = Instance.new("TextLabel")
+headerRank.Size = UDim2.new(0.18, -5, 1, 0)
+headerRank.Position = UDim2.new(0.8, 0, 0, 0)
+headerRank.BackgroundTransparency = 1
+headerRank.Text = "RANK"
+headerRank.TextColor3 = Color3.fromRGB(255, 215, 0)
+headerRank.TextSize = 11
+headerRank.Font = Enum.Font.GothamBold
+headerRank.TextXAlignment = Enum.TextXAlignment.Center
+headerRank.Parent = headerFrame
+
+local commandList = Instance.new("ScrollingFrame")
+commandList.Size = UDim2.new(1, -20, 1, -75)
+commandList.Position = UDim2.new(0, 10, 0, 62)
+commandList.BackgroundTransparency = 1
+commandList.CanvasSize = UDim2.new(0, 0, 0, 0)
+commandList.Parent = commandPanel
+
+local commandListLayout = Instance.new("UIListLayout")
+commandListLayout.Padding = UDim.new(0, 4)
+commandListLayout.Parent = commandList
+
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 60, 0, 25)
+closeButton.Position = UDim2.new(0.5, -30, 1, -30)
+closeButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+closeButton.Text = "CLOSE"
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.TextSize = 12
+closeButton.Font = Enum.Font.GothamBold
+closeButton.Parent = commandPanel
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 6)
+closeCorner.Parent = closeButton
+
+closeButton.MouseButton1Click:Connect(function()
+    commandPanel.Visible = false
+end)
+
+-- Bring function (teleport to target, then return)
+local function bringPlayer(targetPlayer, executor)
+    local character = player.Character
+    local targetChar = targetPlayer.Character
+
+    if not character or not targetChar then
+        addLog("Bring failed: missing character")
+        return
+    end
+
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+
+    if not rootPart or not targetRoot then
+        addLog("Bring failed: missing HumanoidRootPart")
+        return
+    end
+
+    local originalCFrame = rootPart.CFrame
+
+    -- go to target
+    rootPart.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
+
+    addLog(executor.Name .. " [" .. getPlayerRank(executor) .. "] used bring on " ..
+        targetPlayer.Name .. " [" .. getPlayerRank(targetPlayer) .. "]")
+
+    -- small delay then return
+    task.delay(0.35, function()
+        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            player.Character.HumanoidRootPart.CFrame = originalCFrame
+        end
+    end)
+end
+
+-- Dex/Explorer function (Admin rank)
+local function openDexExplorer()
+    local success, err = pcall(function()
+        loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-Dex-Explorer-DPP-73687"))()
+    end)
+    if success then
+        addLog("Dex Explorer opened successfully (Admin+ rank required)")
+    else
+        addLog("Failed to load Dex Explorer: " .. tostring(err))
+    end
+end
+
+-- Server Info function (Member rank)
+local function showServerInfo()
+    local success, err = pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Johan319/Universal-server-info/refs/heads/main/info"))()
+    end)
+    if success then
+        addLog("Server Info displayed successfully")
+    else
+        addLog("Failed to load Server Info: " .. tostring(err))
+    end
+end
+
+-- AntiFling functions (YOUR ORIGINAL)
+local function enableAntiFling()
+    if antiFlingActive then
+        addLog("Anti-Fling is already enabled")
+        return
+    end
+    
+    antiFlingActive = true
+    antiFlingIndicator.Visible = true
+    
+    task.wait(10)
+    
+    if not game.IsLoaded(game) then
+        repeat task.wait() until game.IsLoaded(game)
+    end
+    
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "anti fling activated";
+        Text = "script by Johan756#7155";
+        Icon = "rbxthumb://type=Asset&id=5107182114&w=150&h=150";
+        Duration = 16;
+    })
+    
+    local function AntiFling()
+        local HeartbeatLoop = nil
+        
+        for _, v in next, game:GetDescendants() do
+            if v and v:IsA("Part") and v.Parent ~= player.Character and v.Anchored == false and v.Name == "HumanoidRootPart" then
+                HeartbeatLoop = game:GetService("RunService").Heartbeat:Connect(function()
+                    v.CustomPhysicalProperties = PhysicalProperties.new(0,0,0,0,0)
+                    v.Velocity = Vector3.new(0,0,0)
+                    v.RotVelocity = Vector3.new(0,0,0)
+                    v.CanCollide = false
+                    task.wait(1)
+                end)
+            end
+        end
+        
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid.Died:Connect(function()
+                if HeartbeatLoop then
+                    HeartbeatLoop:Disconnect()
+                    HeartbeatLoop = nil
+                end
+            end)
+        end
+        
+        antiFlingHeartbeat = HeartbeatLoop
+    end
+    
+    AntiFling()
+    
+    workspace.DescendantAdded:Connect(function(part)
+        if antiFlingActive and part:IsA("Part") and part.Name == "HumanoidRootPart" and part.Parent ~= player.Character then
+            task.wait(2)
+            if antiFlingActive then
+                if antiFlingHeartbeat then
+                    antiFlingHeartbeat:Disconnect()
+                    antiFlingHeartbeat = nil
+                end
+                AntiFling()
+            end
+        end
+    end)
+    
+    addLog("Anti-Fling enabled - You are protected from being flung")
+end
+
+local function disableAntiFling()
+    if not antiFlingActive then
+        addLog("Anti-Fling is not enabled")
+        return
+    end
+    
+    if antiFlingHeartbeat then
+        antiFlingHeartbeat:Disconnect()
+        antiFlingHeartbeat = nil
+    end
+    
+    antiFlingActive = false
+    antiFlingIndicator.Visible = false
+    
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "Anti-Fling Deactivated",
+        Text = "You are no longer protected from being flung",
+        Duration = 3
+    })
+    
+    addLog("Anti-Fling disabled - You can now be flung")
+end
+
+local function toggleAntiFling()
+    if antiFlingActive then
+        disableAntiFling()
+    else
+        enableAntiFling()
+    end
+end
+
+-- Spectate functions
+local function stopSpectating()
+    if isSpectating then
+        isSpectating = false
+        if originalCameraSubject then
+            camera.CameraSubject = originalCameraSubject
+        else
+            local character = player.Character
+            if character and character:FindFirstChild("Humanoid") then
+                camera.CameraSubject = character.Humanoid
+            end
+        end
+        currentSpectateTarget = nil
+        spectateIndicator.Visible = false
+        addLog("Stopped spectating")
+    end
+end
+
+local function startSpectating(targetPlayer)
+    if not hasPermission(player, "Moderator") then
+        addLog("Permission denied: You need Moderator+ rank to spectate")
+        return false
+    end
+    
+    if not targetPlayer or not targetPlayer.Character then
+        addLog("Cannot spectate: Player has no character")
+        return false
+    end
+    
+    if isSpectating then
+        stopSpectating()
+    end
+    
+    originalCameraSubject = camera.CameraSubject
+    currentSpectateTarget = targetPlayer
+    
+    local character = targetPlayer.Character
+    local humanoid = character:FindFirstChild("Humanoid")
+    if humanoid then
+        camera.CameraSubject = humanoid
+        isSpectating = true
+        
+        spectateText.Text = "SPECTATING: " .. targetPlayer.Name
+        spectateIndicator.Visible = true
+        
+        addLog(player.Name .. " [" .. getPlayerRank(player) .. "] started spectating " .. targetPlayer.Name .. " [" .. getPlayerRank(targetPlayer) .. "]")
+        return true
+    end
+    return false
+end
+
+local function viewPlayer(targetPlayer)
+    return startSpectating(targetPlayer)
+end
+
+-- AntiSit functions
+local function enableAntiSit()
+    if antiSitEnabled then
+        addLog("Anti-Sit is already enabled")
+        return
+    end
+    
+    antiSitEnabled = true
+    antiSitConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        local character = player.Character
+        if character then
+            local humanoid = character:FindFirstChild("Humanoid")
+            if humanoid and humanoid.Sit then
+                humanoid.Sit = false
+            end
+        end
+    end)
+    
+    antiSitIndicator.Visible = true
+    addLog("Anti-Sit enabled - You cannot sit down")
+end
+
+local function disableAntiSit()
+    if not antiSitEnabled then
+        addLog("Anti-Sit is not enabled")
+        return
+    end
+    
+    if antiSitConnection then
+        antiSitConnection:Disconnect()
+        antiSitConnection = nil
+    end
+    
+    antiSitEnabled = false
+    antiSitIndicator.Visible = false
+    addLog("Anti-Sit disabled - You can now sit down")
+end
+
+local function toggleAntiSit()
+    if antiSitEnabled then
+        disableAntiSit()
+    else
+        enableAntiSit()
+    end
+end
+
+-- Stop spectate button
+stopSpectateButton.MouseButton1Click:Connect(function()
+    stopSpectating()
+end)
+
+-- Handle character respawn
+player.CharacterAdded:Connect(function(character)
+    if isSpectating then
+        stopSpectating()
+    end
+end)
+
+-- Handle target player leaving
+game.Players.PlayerRemoving:Connect(function(leavingPlayer)
+    if isSpectating and currentSpectateTarget == leavingPlayer then
+        addLog("Spectate target left the game!")
+        stopSpectating()
+    end
+end)
+
+-- Toggle log panel
+local rightSectionButton = Instance.new("TextButton")
+rightSectionButton.Size = UDim2.new(1, 0, 1, 0)
+rightSectionButton.Position = UDim2.new(0, 0, 0, 0)
+rightSectionButton.BackgroundTransparency = 1
+rightSectionButton.Text = ""
+rightSectionButton.Parent = rightSection
+
+local commandCount = 0
+local logs = {}
+
+local function addLog(message)
+    table.insert(logs, 1, os.date("%H:%M:%S") .. " - " .. message)
+    if #logs > 30 then table.remove(logs) end
+    
+    for _, child in pairs(logList:GetChildren()) do
+        if child:IsA("TextLabel") then child:Destroy() end
+    end
+    
+    for i, log in ipairs(logs) do
+        local logLabel = Instance.new("TextLabel")
+        logLabel.Size = UDim2.new(1, -10, 0, 18)
+        logLabel.Position = UDim2.new(0, 5, 0, 0)
+        logLabel.Text = log
+        logLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+        logLabel.TextSize = 11
+        logLabel.TextXAlignment = Enum.TextXAlignment.Left
+        logLabel.BackgroundTransparency = 1
+        logLabel.Parent = logList
+    end
+    
+    logList.CanvasSize = UDim2.new(0, 0, 0, #logs * 20)
+end
+
+rightSectionButton.MouseButton1Click:Connect(function()
+    logPanel.Visible = not logPanel.Visible
+    if commandPanel.Visible then commandPanel.Visible = false end
+end)
+
+-- Teleport function
+local function teleportTo(targetPlayer, executor)
+    local character = player.Character
+    local targetChar = targetPlayer.Character
+    if character and targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            rootPart.CFrame = targetChar.HumanoidRootPart.CFrame
+            addLog(executor.Name .. " [" .. getPlayerRank(executor) .. "] teleported to " .. targetPlayer.Name .. " [" .. getPlayerRank(targetPlayer) .. "]")
+        end
+    end
+end
+
+-- Find player function
+local function findPlayer(searchName)
+    local searchLower = searchName:lower()
+    for _, plr in pairs(game.Players:GetPlayers()) do
+        if plr.Name:lower():sub(1, #searchLower) == searchLower then
+            return plr
+        end
+        if plr.DisplayName and plr.DisplayName:lower():sub(1, #searchLower) == searchLower then
+            return plr
+        end
+    end
+    return nil
+end
+
+-- Update prefix display
+local function updatePrefixDisplay()
+    prefixLabel.Text = "Prefix: " .. prefix .. " | Type " .. prefix .. "cmds"
+end
+
+-- Load Anti-Void
+local function loadAntiVoid()
+    if hasPermission(player, "Admin") then
+        local success, err = pcall(function()
+            loadstring(game:HttpGet("https://pastebin.com/raw/5zcfvyhT"))()
+        end)
+        if success then
+            addLog("Anti-Void loaded successfully (Admin+ rank required)")
+        else
+            addLog("Failed to load Anti-Void: " .. tostring(err))
+        end
+    else
+        addLog("Permission denied: You need Admin+ rank to use Anti-Void")
+    end
+end
+
+-- Load Infinite Jump
+local function loadInfiniteJump()
+    if hasPermission(player, "Moderator") then
+        local success, err = pcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/Johan319/fe-infjump-/refs/heads/main/fe%20infjump"))()
+        end)
+        if success then
+            addLog("Infinite Jump loaded successfully (Moderator+ rank required)")
+        else
+            addLog("Failed to load Infinite Jump: " .. tostring(err))
+        end
+    else
+        addLog("Permission denied: You need Moderator+ rank to use Infinite Jump")
+    end
+end
+
+-- Show commands panel
+local function showCommandsPanel()
+    for _, child in pairs(commandList:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+    
+    local commands = {
+        {cmd = "bring <player>", desc = "Teleport to player and return", rank = "Admin", rankLevel = 70},
+        {cmd = "dex / explorer", desc = "Open Dex Explorer (exploit tool)", rank = "Admin", rankLevel = 70},
+        {cmd = "antivoid", desc = "Load anti-void script", rank = "Admin", rankLevel = 70},
+        {cmd = "antisit", desc = "Toggle anti-sit", rank = "Admin", rankLevel = 70},
+        {cmd = "tp/goto/to <player>", desc = "Teleport to player", rank = "Moderator", rankLevel = 60},
+        {cmd = "view/spectate <player>", desc = "Spectate player", rank = "Moderator", rankLevel = 60},
+        {cmd = "infjump", desc = "Infinite jump", rank = "Moderator", rankLevel = 60},
+        {cmd = "prefix <char>", desc = "Change prefix", rank = "Moderator", rankLevel = 60},
+        {cmd = "antifling", desc = "Toggle anti-fling protection", rank = "Moderator", rankLevel = 60},
+        {cmd = "serverinfo / info", desc = "Display server information", rank = "Member", rankLevel = 10},
+        {cmd = "rejoin", desc = "Rejoin game", rank = "Member", rankLevel = 10},
+        {cmd = "reset", desc = "Reset character", rank = "Member", rankLevel = 10},
+        {cmd = "cmds/commands", desc = "Show this list", rank = "Member", rankLevel = 10},
+    }
+    
+    table.sort(commands, function(a, b)
+        return a.rankLevel > b.rankLevel
+    end)
+    
+    for _, cmdInfo in ipairs(commands) do
+        local cmdFrame = Instance.new("Frame")
+        cmdFrame.Size = UDim2.new(1, 0, 0, 24)
+        cmdFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+        cmdFrame.BackgroundTransparency = 0.3
+        cmdFrame.BorderSizePixel = 0
+        cmdFrame.Parent = commandList
+        
+        local cmdCorner = Instance.new("UICorner")
+        cmdCorner.CornerRadius = UDim.new(0, 5)
+        cmdCorner.Parent = cmdFrame
+        
+        local cmdText = Instance.new("TextLabel")
+        cmdText.Size = UDim2.new(0.35, -5, 1, 0)
+        cmdText.Position = UDim2.new(0, 5, 0, 0)
+        cmdText.BackgroundTransparency = 1
+        cmdText.Text = cmdInfo.cmd
+        cmdText.TextColor3 = Color3.fromRGB(255, 215, 0)
+        cmdText.TextSize = 12
+        cmdText.Font = Enum.Font.GothamBold
+        cmdText.TextXAlignment = Enum.TextXAlignment.Left
+        cmdText.Parent = cmdFrame
+        
+        local descText = Instance.new("TextLabel")
+        descText.Size = UDim2.new(0.45, -5, 1, 0)
+        descText.Position = UDim2.new(0.35, 5, 0, 0)
+        descText.BackgroundTransparency = 1
+        descText.Text = cmdInfo.desc
+        descText.TextColor3 = Color3.fromRGB(200, 200, 200)
+        descText.TextSize = 12
+        descText.Font = Enum.Font.Gotham
+        descText.TextXAlignment = Enum.TextXAlignment.Left
+        descText.Parent = cmdFrame
+        
+        local rankText = Instance.new("TextLabel")
+        rankText.Size = UDim2.new(0.18, -5, 1, 0)
+        rankText.Position = UDim2.new(0.8, 0, 0, 0)
+        rankText.BackgroundTransparency = 1
+        rankText.Text = cmdInfo.rank
+        rankText.TextColor3 = cmdInfo.rank == "Admin" and Color3.fromRGB(0, 255, 100) or
+                              cmdInfo.rank == "Moderator" and Color3.fromRGB(255, 170, 0) or
+                              Color3.fromRGB(150, 150, 150)
+        rankText.TextSize = 11
+        rankText.Font = Enum.Font.GothamBold
+        rankText.TextXAlignment = Enum.TextXAlignment.Center
+        rankText.Parent = cmdFrame
+    end
+    
+    commandList.CanvasSize = UDim2.new(0, 0, 0, #commands * 32)
+    commandPanel.Visible = true
+    if logPanel.Visible then logPanel.Visible = false end
+end
+
+-- Command handler
+player.Chatted:Connect(function(msg)
+    if msg:sub(1, 1) == prefix then
+        local args = {}
+        for arg in msg:sub(2):gmatch("%S+") do
+            table.insert(args, arg)
+        end
+        
+        local command = args[1] and args[1]:lower()
+        local targetName = args[2]
+        
+        if command == "tp" or command == "goto" or command == "to" then
+            if not hasPermission(player, "Moderator") then
+                addLog("Permission denied: " .. player.Name .. " tried to use " .. command .. " (Required: Moderator)")
+                return
+            end
+            if targetName then
+                local target = findPlayer(targetName)
+                if target then
+                    teleportTo(target, player)
+                    commandCount = commandCount + 1
+                    counterLabel.Text = tostring(commandCount)
+                else
+                    addLog("Player not found: " .. targetName)
+                end
+            else
+                addLog("Usage: " .. prefix .. command .. " <player name>")
+            end
+        
+        elseif command == "view" or command == "spectate" then
+            if not hasPermission(player, "Moderator") then
+                addLog("Permission denied: " .. player.Name .. " tried to use " .. command .. " (Required: Moderator)")
+                return
+            end
+            if targetName then
+                local target = findPlayer(targetName)
+                if target then
+                    if target == player then
+                        addLog("You cannot spectate yourself!")
+                    else
+                        viewPlayer(target)
+                        commandCount = commandCount + 1
+                        counterLabel.Text = tostring(commandCount)
+                    end
+                else
+                    addLog("Player not found: " .. targetName)
+                end
+            else
+                addLog("Usage: " .. prefix .. command .. " <player name>")
+            end
+        
+        elseif command == "dex" or command == "explorer" then
+            if not hasPermission(player, "Admin") then
+                addLog("Permission denied: " .. player.Name .. " tried to use " .. command .. " (Required: Admin)")
+                return
+            end
+            openDexExplorer()
+            commandCount = commandCount + 1
+            counterLabel.Text = tostring(commandCount)
+            addLog(player.Name .. " [" .. getPlayerRank(player) .. "] opened Dex Explorer")
+        
+        elseif command == "antivoid" then
+            if not hasPermission(player, "Admin") then
+                addLog("Permission denied: " .. player.Name .. " tried to use antivoid (Required: Admin)")
+                return
+            end
+            loadAntiVoid()
+            commandCount = commandCount + 1
+            counterLabel.Text = tostring(commandCount)
+        
+        elseif command == "antisit" then
+            if not hasPermission(player, "Admin") then
+                addLog("Permission denied: " .. player.Name .. " tried to use antisit (Required: Admin)")
+                return
+            end
+            toggleAntiSit()
+            commandCount = commandCount + 1
+            counterLabel.Text = tostring(commandCount)
+        
+        elseif command == "infjump" then
+            if not hasPermission(player, "Moderator") then
+                addLog("Permission denied: " .. player.Name .. " tried to use infjump (Required: Moderator)")
+                return
+            end
+            loadInfiniteJump()
+            commandCount = commandCount + 1
+            counterLabel.Text = tostring(commandCount)
+        
+        elseif command == "antifling" then
+            if not hasPermission(player, "Moderator") then
+                addLog("Permission denied: " .. player.Name .. " tried to use antifling (Required: Moderator)")
+                return
+            end
+            toggleAntiFling()
+            commandCount = commandCount + 1
+            counterLabel.Text = tostring(commandCount)
+
+        elseif command == "bring" then
+    if not hasPermission(player, "Admin") then
+        addLog("Permission denied: " .. player.Name .. " tried to use bring (Required: Admin)")
+        return
+    end
+
+    if targetName then
+        local target = findPlayer(targetName)
+        if target then
+            if target == player then
+                addLog("You cannot bring yourself")
+            else
+                bringPlayer(target, player)
+                commandCount = commandCount + 1
+                counterLabel.Text = tostring(commandCount)
+            end
+        else
+            addLog("Player not found: " .. targetName)
+        end
+    else
+        addLog("Usage: " .. prefix .. "bring <player name>")
+    end
+        
+        elseif command == "serverinfo" or command == "info" then
+            showServerInfo()
+            commandCount = commandCount + 1
+            counterLabel.Text = tostring(commandCount)
+            addLog(player.Name .. " [" .. getPlayerRank(player) .. "] viewed server info")
+        
+        elseif command == "prefix" then
+            if not hasPermission(player, "Moderator") then
+                addLog("Permission denied: " .. player.Name .. " tried to use prefix command (Required: Moderator)")
+                return
+            end
+            local newPrefix = args[2]
+            if newPrefix and #newPrefix == 1 then
+                prefix = newPrefix
+                updatePrefixDisplay()
+                addLog(player.Name .. " [" .. getPlayerRank(player) .. "] changed prefix to: " .. prefix)
+            else
+                addLog("Usage: " .. prefix .. "prefix <single character>")
+            end
+        
+        elseif command == "rejoin" then
+            game:GetService("TeleportService"):Teleport(game.PlaceId)
+        
+        elseif command == "reset" then
+            if player.Character then
+                player.Character:BreakJoints()
+                addLog(player.Name .. " [" .. getPlayerRank(player) .. "] reset their character")
+            end
+        
+        elseif command == "cmds" or command == "commands" then
+            showCommandsPanel()
+            addLog(player.Name .. " [" .. getPlayerRank(player) .. "] viewed the commands list")
+        end
+    end
+end)
+
+updateBorderColor()
+
+-- Initial setup
+addLog("=== ADMIN TITLEBAR LOADED ===")
+addLog("Your rank: " .. getPlayerRank(player))
+addLog("Commands: tp, goto, to, view, spectate, antivoid (Admin+), antisit (Admin+), infjump (Mod+), antifling (Mod+), serverinfo (Member), info (Member), dex (Admin+), explorer (Admin+), prefix, rejoin, reset, cmds, commands")
+addLog("Click 'logs' (right side) for command history!")
+addLog("Type " .. prefix .. "cmds to see all commands")
+
+print("=== Admin Commands + Titlebar Loaded ===")
+print("Current prefix: " .. prefix)
+print("Your rank: " .. getPlayerRank(player))
