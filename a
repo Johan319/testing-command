@@ -414,59 +414,38 @@ closeButton.MouseButton1Click:Connect(function()
     commandPanel.Visible = false
 end)
 
--- Bring function (teleport to target, then return)
-local function bringPlayer(targetPlayer, executor)
-    local character = player.Character
+ -- Fling function (Admin+ rank)
+local function flingPlayer(targetPlayer, executor)
+    local character = executor.Character
     local targetChar = targetPlayer.Character
-
+    
     if not character or not targetChar then
-        addLog("Bring failed: missing character")
-        return
+        addLog("Cannot fling: Missing character")
+        return false
     end
-
+    
     local rootPart = character:FindFirstChild("HumanoidRootPart")
     local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
-
+    
     if not rootPart or not targetRoot then
-        addLog("Bring failed: missing HumanoidRootPart")
-        return
+        addLog("Cannot fling: Missing HumanoidRootPart")
+        return false
     end
-
-    -- save exact original position + rotation
-    local originalCFrame = rootPart.CFrame
-
-    -- go to target
-    rootPart.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0)
-
-    addLog(executor.Name .. " [" .. getPlayerRank(executor) .. "] used bring on " ..
-        targetPlayer.Name .. " [" .. getPlayerRank(targetPlayer) .. "]")
-
-    task.wait(0.2)
-
-    local currentCharacter = player.Character
-    if not currentCharacter then
-        return
-    end
-
-    local currentRoot = currentCharacter:FindFirstChild("HumanoidRootPart")
-    if not currentRoot then
-        return
-    end
-
-    -- stop physics from pushing you
-    local oldVelocity = currentRoot.AssemblyLinearVelocity
-    local oldRotVelocity = currentRoot.AssemblyAngularVelocity
-
-    currentRoot.Anchored = true
-    currentRoot.AssemblyLinearVelocity = Vector3.zero
-    currentRoot.AssemblyAngularVelocity = Vector3.zero
-    currentRoot.CFrame = originalCFrame
-
-    task.wait()
-
-    currentRoot.Anchored = false
-    currentRoot.AssemblyLinearVelocity = oldVelocity
-    currentRoot.AssemblyAngularVelocity = oldRotVelocity
+    
+    -- Teleport to target
+    rootPart.CFrame = targetRoot.CFrame
+    
+    -- Apply extreme velocity (the fling)
+    rootPart.Velocity = Vector3.new(99999999, 99999999, 99999999)
+    rootPart.RotVelocity = Vector3.new(99999999, 99999999, 99999999)
+    
+    -- Optional: Break their joints for extra effect
+    pcall(function()
+        targetChar:BreakJoints()
+    end)
+    
+    addLog(executor.Name .. " [" .. getPlayerRank(executor) .. "] FLUNG " .. targetPlayer.Name .. " [" .. getPlayerRank(targetPlayer) .. "]")
+    return true
 end
 
 -- Dex/Explorer function (Admin rank)
@@ -823,7 +802,7 @@ local function showCommandsPanel()
     end
     
     local commands = {
-        {cmd = "bring <player>", desc = "Teleport to player and return", rank = "Admin", rankLevel = 70},
+        {cmd = "fling <player>", desc = "Fling a player (Admin+)", rank = "Admin", rankLevel = 70},
         {cmd = "dex / explorer", desc = "Open Dex Explorer (exploit tool)", rank = "Admin", rankLevel = 70},
         {cmd = "antivoid", desc = "Load anti-void script", rank = "Admin", rankLevel = 70},
         {cmd = "antisit", desc = "Toggle anti-sit", rank = "Admin", rankLevel = 70},
@@ -945,6 +924,28 @@ player.Chatted:Connect(function(msg)
             else
                 addLog("Usage: " .. prefix .. command .. " <player name>")
             end
+
+        elseif command == "fling" then
+    if not hasPermission(player, "Admin") then
+        addLog("Permission denied: " .. player.Name .. " tried to use fling (Required: Admin)")
+        return
+    end
+    if targetName then
+        local target = findPlayer(targetName)
+        if target then
+            if target == player then
+                addLog("You cannot fling yourself!")
+            else
+                flingPlayer(target, player)
+                commandCount = commandCount + 1
+                counterLabel.Text = tostring(commandCount)
+            end
+        else
+            addLog("Player not found: " .. targetName)
+        end
+    else
+        addLog("Usage: " .. prefix .. "fling <player name>")
+    end
         
         elseif command == "dex" or command == "explorer" then
             if not hasPermission(player, "Admin") then
@@ -991,29 +992,6 @@ player.Chatted:Connect(function(msg)
             toggleAntiFling()
             commandCount = commandCount + 1
             counterLabel.Text = tostring(commandCount)
-
-        elseif command == "bring" then
-    if not hasPermission(player, "Admin") then
-        addLog("Permission denied: " .. player.Name .. " tried to use bring (Required: Admin)")
-        return
-    end
-
-    if targetName then
-        local target = findPlayer(targetName)
-        if target then
-            if target == player then
-                addLog("You cannot bring yourself")
-            else
-                bringPlayer(target, player)
-                commandCount = commandCount + 1
-                counterLabel.Text = tostring(commandCount)
-            end
-        else
-            addLog("Player not found: " .. targetName)
-        end
-    else
-        addLog("Usage: " .. prefix .. "bring <player name>")
-    end
         
         elseif command == "serverinfo" or command == "info" then
             showServerInfo()
